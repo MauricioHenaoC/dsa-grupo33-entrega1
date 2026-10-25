@@ -2,5 +2,5 @@
 .venv/
 _pycache_/
 .ipynb_checkpoints/
-data/raw/
-data/processed/
+data/raw/*.csv
+data/processed/*.csv
