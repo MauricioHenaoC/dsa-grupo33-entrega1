@@ -1,2 +1,6 @@
-data/ 
-.ipynb_checkpoints/ 
+/data/*.csv
+.venv/
+_pycache_/
+.ipynb_checkpoints/
+data/raw/
+data/processed/
