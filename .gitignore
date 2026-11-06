@@ -6,3 +6,4 @@ data/raw/*.csv
 data/processed/*.csv
 mlflow.db
 mlruns/
+model/modelo_final.joblib

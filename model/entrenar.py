@@ -31,7 +31,7 @@ def te(train, test, col):
     return test[col].map((g["sum"] + K * prior) / (g["count"] + K)).fillna(prior).values
 
 def correr(params, feats, nombre):
-    mlflow.set_tracking_uri("sqlite:///mlflow.db")
+    mlflow.set_tracking_uri(os.environ.get("MLFLOW_TRACKING_URI", "sqlite:///mlflow.db"))
     mlflow.set_experiment("desercion_sena_riesgo")
     oof = np.zeros(len(df))
     aucs = []
@@ -62,7 +62,7 @@ def correr(params, feats, nombre):
 PARAMS = dict(max_iter=150, learning_rate=0.08, max_leaf_nodes=15,
               min_samples_leaf=40, l2_regularization=1.0, random_state=42)
 FEATS = ["mod_c", "niv_c", "te_prog", "te_centro", "matriculados", "duracion_dias"]
-
+correr(PARAMS, FEATS, "linea_base_notebook")
 
 for lr in [0.04, 0.16]:
     correr({**PARAMS, "learning_rate": lr}, FEATS, f"exp_learning_rate_{lr}")
@@ -71,3 +71,34 @@ for hojas in [7, 31]:
 for msl in [20, 80]:
     correr({**PARAMS, "min_samples_leaf": msl}, FEATS, f"exp_min_muestras_{msl}")
 correr(PARAMS, FEATS[:4] + FEATS[5:], "sin_matriculados")
+# ---- Modelo final: configuración de referencia, con todos los datos ----
+import joblib
+
+def codificar_todo(datos, col):
+    g = datos.groupby(col)['y'].agg(['sum', 'count'])
+    prior = datos['y'].mean()
+    return (g['sum'] + K * prior) / (g['count'] + K), prior
+
+tasa_programa, prior = codificar_todo(df, 'CODIGO_PROGRAMA')
+tasa_centro, _ = codificar_todo(df, 'CODIGO_CENTRO')
+
+X_final = df[['mod_c', 'niv_c', 'matriculados', 'duracion_dias']].copy()
+X_final['te_prog'] = df['CODIGO_PROGRAMA'].map(tasa_programa).fillna(prior).values
+X_final['te_centro'] = df['CODIGO_CENTRO'].map(tasa_centro).fillna(prior).values
+X_final = X_final[FEATS]
+
+modelo_final = HistGradientBoostingClassifier(**PARAMS).fit(X_final, df['y'])
+
+joblib.dump({
+    'modelo': modelo_final,
+    'tasa_programa': tasa_programa,
+    'tasa_centro': tasa_centro,
+    'prior': prior,
+    'features': FEATS,
+    'params': PARAMS,
+}, 'model/modelo_final.joblib')
+print('Modelo final guardado en model/modelo_final.joblib')
+
+mlflow.set_experiment('desercion_sena_riesgo')
+with mlflow.start_run(run_name='modelo_final'):
+    mlflow.log_params({**PARAMS, 'features': ','.join(FEATS), 'K_suavizado': K})
