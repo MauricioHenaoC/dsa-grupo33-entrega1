@@ -1,0 +1,9 @@
+# Tablero
+dash>=2.18,<4
+pandas
+numpy
+scikit-learn
+joblib
+# Solo para correr model/entrenar.py y generar model/modelo_final.joblib.
+# Misma versión del servidor de MLflow en la EC2.
+mlflow==3.18.0

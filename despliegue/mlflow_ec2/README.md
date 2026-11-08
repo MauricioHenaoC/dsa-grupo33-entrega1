@@ -142,7 +142,9 @@ El servicio queda habilitado, así que al volver a encender la instancia MLflow 
 | Síntoma | Causa y solución |
 | --- | --- |
 | `Invalid Host header - possible DNS rebinding attack detected` | La IP pública cambió o se asoció la IP elástica después de arrancar. `sudo systemctl restart mlflow`. |
+| La tabla de corridas muestra `Request error` / `INTERNAL_ERROR`, y el registro dice `Blocked cross-origin request` | Falta permitir el origen de la interfaz. `iniciar_mlflow.sh` ya define `MLFLOW_SERVER_CORS_ALLOWED_ORIGINS` con la IP pública; si se instaló con una versión anterior, copia el archivo nuevo a `~/mlflow/` y `sudo systemctl restart mlflow`. |
 | Tiempo de espera agotado en el navegador o en `entrenar.py` | La IP de quien se conecta no está en el puerto 5000 del grupo de seguridad, o cambió. |
 | `UNPROTECTED PRIVATE KEY FILE` | Permisos de la llave en Windows. Ver los comandos `icacls` del paso 4. |
 | `/usr/bin/env: 'bash\r'` o `$'\r': command not found` | Archivos con CRLF. `sed -i 's/\r$//' *.sh *.service`. |
-| El servicio se reinicia en bucle | `sudo journalctl -u mlflow -n 50 --no-pager` para ver el error. |
+| Página en blanco, `ERR_CONNECTION_RESET` o `curl` responde `000`; `systemctl show mlflow -p NRestarts` mayor que 0 | MLflow se cae por falta de memoria. `mlflow.service` ya trae `Environment=MLFLOW_SERVER_ENABLE_JOB_EXECUTION=false`, que lo evita; si se instaló con una versión anterior del archivo, agrega esa línea bajo `[Service]`, y luego `sudo systemctl daemon-reload` y `sudo systemctl restart mlflow`. |
+| El servicio se reinicia en bucle por otra causa | `sudo journalctl -u mlflow -n 50 --no-pager` para ver el error. |

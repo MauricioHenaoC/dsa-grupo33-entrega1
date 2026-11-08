@@ -4,6 +4,10 @@ Wants=network-online.target
 After=network-online.target
 
 [Service]
+# Desactiva la ejecución de tareas en el servidor (procesos huey_consumer).
+# No se usa en este proyecto y, en una t3.small, hacía que MLflow se cayera
+# y se reiniciara solo (página en blanco, ERR_CONNECTION_RESET).
+Environment=MLFLOW_SERVER_ENABLE_JOB_EXECUTION=false
 User=ubuntu
 WorkingDirectory=/home/ubuntu/mlflow
 ExecStart=/home/ubuntu/mlflow/iniciar_mlflow.sh

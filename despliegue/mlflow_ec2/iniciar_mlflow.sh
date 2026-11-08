@@ -25,6 +25,12 @@ fi
 # Afecta tanto al navegador como a los scripts que registran corridas.
 export MLFLOW_SERVER_ALLOWED_HOSTS="${IP_PUBLICA}:${PUERTO},${IP_PUBLICA},localhost:*,127.0.0.1:*"
 
+# La interfaz web envía peticiones POST con el encabezado Origin de la página
+# (http://IP:5000). Si ese origen no está permitido, el servidor responde 403
+# ("Blocked cross-origin request") y la tabla de corridas muestra
+# "Request error". Por defecto solo se permite localhost.
+export MLFLOW_SERVER_CORS_ALLOWED_ORIGINS="http://${IP_PUBLICA}:${PUERTO}"
+
 echo "MLflow disponible en http://${IP_PUBLICA}:${PUERTO}"
 
 # --artifacts-destination: los artefactos (modelos, figuras) se guardan en el
