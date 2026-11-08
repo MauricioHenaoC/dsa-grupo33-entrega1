@@ -1,0 +1,14 @@
+[Unit]
+Description=Servidor de seguimiento MLflow - grupo 33
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+User=ubuntu
+WorkingDirectory=/home/ubuntu/mlflow
+ExecStart=/home/ubuntu/mlflow/iniciar_mlflow.sh
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

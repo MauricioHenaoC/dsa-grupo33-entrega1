@@ -1,0 +1,4 @@
+# Los scripts corren en Linux: Git debe guardarlos y sacarlos con finales LF,
+# aunque el repositorio se clone en Windows.
+*.sh      text eol=lf
+*.service text eol=lf
