@@ -10,11 +10,15 @@ Uso, desde la raíz del repositorio y con el entorno activo:
 Luego se abre http://127.0.0.1:8050 en el navegador.
 
 Necesita data/raw/DESERCION_FPI_20261023.csv (dvc pull) y
-model/modelo_final.joblib (python model/entrenar.py).
+model/modelo_final.joblib (python model/entrenar.py). El simulador consulta
+la API de app/api.py (POST /predecir), que debe estar corriendo:
+    uvicorn app.api:app --port 8000
 """
 import json
 import os
 import sys
+import urllib.error
+import urllib.request
 from urllib.parse import parse_qs
 
 from dash import Dash, Input, Output, State, dcc, html, no_update
@@ -80,6 +84,9 @@ def _programa_por_defecto():
         return ejemplo["fichas"].idxmax()
     return PROGRAMAS["fichas"].idxmax()
 
+
+# Dirección de la API de predicción (app/api.py).
+API_URL = os.environ.get("API_URL", "http://127.0.0.1:8000").rstrip("/")
 
 CENTRO_DEFECTO = _centro_por_defecto()
 PROGRAMA_DEFECTO = _programa_por_defecto()
@@ -316,7 +323,7 @@ def pagina_simulador():
                                 value=int(programa["duracion"]), className="numero"),
                       "sim-duracion"),
                 html.P(id="sim-duracion-nota", className="nota"),
-                html.Button("Consultar riesgo", id="sim-consultar", className="boton principal"),
+                html.Button("Consultar riesgo en la API", id="sim-consultar", className="boton principal"),
             ),
             html.Section(id="sim-resultado", className="panel"),
         ]),
@@ -324,8 +331,7 @@ def pagina_simulador():
             panel(
                 "Petición y respuesta",
                 html.Div(id="sim-json", className="json-rejilla"),
-                subtitulo=("Formato previsto para la API (POST /api/v1/predict). En esta versión, "
-                           "el tablero calcula la predicción con el modelo cargado localmente."),
+                subtitulo=f"Lo que el simulador envía a la API (POST {API_URL}/predecir) y lo que recibe.",
             ),
             panel("Ficha técnica del modelo", ficha_tecnica()),
         ]),
@@ -343,6 +349,7 @@ def ficha_tecnica():
         ("Priorización", "El 20 % de las fichas con mayor riesgo reúne cerca del 50 % "
                          "de las fichas con deserción alta."),
         ("Umbrales", "Medio desde 12 %, alto desde 25 %."),
+        ("Servicio", "API en FastAPI (app/api.py), POST /predecir."),
         ("Versión", "model/modelo_final.joblib, línea base."),
     ]
     return html.Dl(className="ficha-tecnica", children=[
@@ -425,7 +432,8 @@ def actualizar_panorama(codigo):
         html.Div(className="tarjeta", children=[
             html.Div("Fichas activas", className="tarjeta-titulo"),
             html.Div(miles(n_activas), className="tarjeta-cifra"),
-            html.Div(f"{miles(activas['matriculados'].sum())} aprendices matriculados", className="tenue"),
+            html.Div(f"{miles(activas['matriculados'].sum())} aprendices matriculados en fichas activas",
+                     className="tenue"),
         ]),
         html.Div(className="tarjeta", children=[
             html.Div("Desertores en el año", className="tarjeta-titulo"),
@@ -441,6 +449,8 @@ def actualizar_panorama(codigo):
                           className="chip " + ("chip-alto" if diferencia > 0 else "chip-bajo")),
             ]),
             html.Div(f"Regional {pct(tasa_regional)} · Nacional {pct(TASA_PAIS)}", className="tenue"),
+            html.Div(f"{miles(centro['desertores'].sum())} desertores entre "
+                     f"{miles(centro['matriculados'].sum())} matriculados del centro", className="tenue"),
         ]),
         html.Div(className="tarjeta", children=[
             html.Div("Fichas en riesgo alto", className="tarjeta-titulo"),
@@ -652,6 +662,63 @@ def datos_programa(codigo):
             f"Duración típica del programa: {int(programa['duracion'])} días.")
 
 
+class ErrorAPI(Exception):
+    """La API no respondió o rechazó la petición."""
+
+
+def consultar_api(ficha):
+    """POST /predecir de app/api.py. Devuelve el JSON de la respuesta."""
+    pedido = urllib.request.Request(
+        f"{API_URL}/predecir", data=json.dumps(ficha).encode("utf-8"),
+        headers={"Content-Type": "application/json"}, method="POST")
+    try:
+        with urllib.request.urlopen(pedido, timeout=10) as respuesta:
+            return json.loads(respuesta.read().decode("utf-8"))
+    except urllib.error.HTTPError as error:
+        detalle = error.read().decode("utf-8", "replace")
+        raise ErrorAPI(f"La API rechazó la petición (código {error.code}): {detalle}") from error
+    except (urllib.error.URLError, ConnectionError, TimeoutError) as error:
+        raise ErrorAPI(
+            f"No hay respuesta de la API en {API_URL}. Levántala en otra ventana, desde la raíz "
+            "del repositorio y con el entorno activo: uvicorn app.api:app --port 8000") from error
+
+
+# Ficha de referencia expresada como datos de entrada de la API. Un código que
+# no existe en los datos hace que la API use la tasa promedio (prior).
+SIN_HISTORIAL = "SIN_HISTORIAL"
+REFERENCIA_API = {
+    "mod_c": ("modalidad_formacion", "PRESENCIAL"),
+    "niv_c": ("nivel_formacion", "TECNICO"),
+    "te_prog": ("codigo_programa", SIN_HISTORIAL),
+    "te_centro": ("codigo_centro", SIN_HISTORIAL),
+    "matriculados": ("matriculados", int(round(REF["matriculados"]))),
+    "duracion_dias": ("duracion_dias", int(round(REF["duracion_dias"]))),
+}
+
+
+def explicar_con_api(ficha, probabilidad, etiquetas):
+    """Aporte de cada variable: se consulta la API cambiando una variable a la vez
+    por la de la ficha de referencia y se mide cuánto cambia la probabilidad."""
+    aportes = []
+    for variable, (campo, valor) in REFERENCIA_API.items():
+        variante = {**ficha, campo: valor}
+        p_variante = float(consultar_api(variante)["probabilidad_desercion_alta"])
+        aportes.append({"variable": variable, "etiqueta": etiquetas[variable],
+                        "aporte_pp": (probabilidad - p_variante) * 100})
+    return sorted(aportes, key=lambda a: -abs(a["aporte_pp"]))
+
+
+def vista_json(peticion, respuesta):
+    texto = (json.dumps(respuesta, indent=2, ensure_ascii=False)
+             if isinstance(respuesta, dict) else respuesta)
+    return [
+        html.Div([html.Div("Petición", className="etiqueta"),
+                  html.Pre(json.dumps(peticion, indent=2, ensure_ascii=False), className="json")]),
+        html.Div([html.Div("Respuesta", className="etiqueta"),
+                  html.Pre(texto, className="json")]),
+    ]
+
+
 @app.callback(
     Output("sim-resultado", "children"), Output("sim-json", "children"),
     Input("sim-consultar", "n_clicks"),
@@ -659,47 +726,53 @@ def datos_programa(codigo):
     State("sim-matriculados", "value"), State("sim-duracion", "value"),
 )
 def simular(_, centro, codigo_programa, modalidad, matriculados, duracion):
+    titulo = html.H2("Resultado de la predicción")
     if not duracion or duracion <= 0 or not matriculados:
         aviso = html.P("Escribe una duración planeada mayor que cero y vuelve a consultar.", className="vacio")
-        return [html.H2("Resultado de la predicción"), aviso], ""
+        return [titulo, aviso], ""
     programa = PROGRAMAS.loc[codigo_programa]
     nivel = programa["nivel"]
-    fila = D.fila_para_prediccion(centro, codigo_programa, nivel, modalidad, matriculados, duracion)
-    p, aportes = D.explicar(D.construir_matriz(fila, ART), ART, REF)
-    riesgo = D.nivel_riesgo(p)
 
+    # Mismos campos que la clase Ficha de app/api.py.
     peticion = {
-        "centro": centro, "programa": codigo_programa, "nivel_formacion": nivel,
-        "modalidad": modalidad, "aprendices_matriculados": int(matriculados),
+        "nivel_formacion": nivel,
+        "modalidad_formacion": modalidad,
+        "codigo_programa": codigo_programa,
+        "codigo_centro": centro,
+        "matriculados": int(matriculados),
         "duracion_dias": int(duracion),
     }
-    respuesta = {
-        "probabilidad": round(p, 4), "nivel_riesgo": riesgo.upper(),
-        "umbrales": {"medio": D.UMBRAL_MEDIO, "alto": D.UMBRAL_ALTO},
-        "factores_pp": {a["variable"]: round(a["aporte_pp"], 1) for a in aportes},
-        "modelo": "modelo_final",
-    }
+    try:
+        respuesta = consultar_api(peticion)
+        p = float(respuesta["probabilidad_desercion_alta"])
+        fila = D.fila_para_prediccion(centro, codigo_programa, nivel, modalidad, matriculados, duracion)
+        etiquetas = D.etiquetas_variables(D.construir_matriz(fila, ART).iloc[0])
+        aportes = explicar_con_api(peticion, p, etiquetas)
+    except ErrorAPI as error:
+        return [titulo, html.P(str(error), className="vacio")], vista_json(peticion, "Sin respuesta")
 
+    riesgo = D.nivel_riesgo(p)
+    avisos = []
+    if not respuesta.get("codigo_programa_conocido", True):
+        avisos.append("el programa no tiene historial en los datos")
+    if not respuesta.get("codigo_centro_conocido", True):
+        avisos.append("el centro no tiene historial en los datos")
     contexto = ""
     if programa["fichas"]:
         contexto = (f" En el país, este programa registra una tasa de deserción de "
                     f"{pct(programa['tasa'])} en {miles(programa['fichas'])} fichas.")
     resultado = [
-        html.H2("Resultado de la predicción"),
+        titulo,
         html.Div(className="resultado-cifra grande", children=[pct(p, 0), insignia(riesgo)]),
         escala_riesgo(p),
         html.P(f"De cada 100 fichas con estas características, cerca de {round(p * 100)} terminarían "
                f"con una tasa de deserción de 5 % o más.{contexto}", className="nota"),
-        html.H4("¿Qué explica el resultado?"),
-        barras_factores(aportes),
     ]
-    json_vista = [
-        html.Div([html.Div("Petición", className="etiqueta"),
-                  html.Pre(json.dumps(peticion, indent=2, ensure_ascii=False), className="json")]),
-        html.Div([html.Div("Respuesta", className="etiqueta"),
-                  html.Pre(json.dumps(respuesta, indent=2, ensure_ascii=False), className="json")]),
-    ]
-    return resultado, json_vista
+    if avisos:
+        resultado.append(html.P("Atención: " + " y ".join(avisos) + "; la API usa la tasa promedio.",
+                                className="nota"))
+    resultado += [html.H4("¿Qué explica el resultado?"), barras_factores(aportes)]
+    return resultado, vista_json(peticion, respuesta)
 
 
 # ------------------------------------------------------------------ estilo ----
@@ -852,8 +925,9 @@ h4 { font-size: 14px; margin: 20px 0 8px; }
 .segmentos { display: inline-flex; border: 1px solid var(--borde); border-radius: 8px; overflow: hidden; }
 .segmento { display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px; font-size: 13.5px; cursor: pointer; }
 .segmento-input { accent-color: var(--verde); }
-.json-rejilla { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-.json { background: var(--bosque); color: #d9eadf; font-size: 12px; padding: 12px; border-radius: 8px; overflow-x: auto; margin: 0; }
+.json-rejilla { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
+.json { background: var(--bosque); color: #d9eadf; font-size: 12px; padding: 12px; border-radius: 8px; overflow-x: auto; margin: 0;
+  white-space: pre-wrap; overflow-wrap: anywhere; }
 .ficha-tecnica { display: grid; grid-template-columns: 110px 1fr; gap: 8px 14px; margin: 0; font-size: 13.5px; }
 .ficha-tecnica dt { color: var(--tenue); }
 .ficha-tecnica dd { margin: 0; }

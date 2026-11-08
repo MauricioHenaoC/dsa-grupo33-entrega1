@@ -1,5 +1,8 @@
 # Tablero
 dash>=2.18,<4
+# API (app/api.py)
+fastapi
+uvicorn
 pandas
 numpy
 scikit-learn

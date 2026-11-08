@@ -187,6 +187,20 @@ def fila_para_prediccion(codigo_centro, codigo_programa, nivel, modalidad,
     }])
 
 
+def etiquetas_variables(fila):
+    """Texto de cada variable para una fila de la matriz del modelo."""
+    nombres_mod = {v: frase(k) for k, v in MODALIDADES.items()}
+    nombres_niv = {i: nombre_nivel(n) for i, n in enumerate(NIVELES)}
+    return {
+        "mod_c": f"Modalidad: {nombres_mod.get(fila['mod_c'], 'otra').lower()}",
+        "niv_c": f"Nivel: {nombres_niv.get(fila['niv_c'], 'otro').lower()}",
+        "te_prog": f"Programa: {fila['te_prog'] * 100:.0f} % de sus fichas con deserción alta",
+        "te_centro": f"Centro: {fila['te_centro'] * 100:.0f} % de sus fichas con deserción alta",
+        "matriculados": f"Tamaño: {fila['matriculados']:.0f} aprendices",
+        "duracion_dias": f"Duración: {fila['duracion_dias']:.0f} días",
+    }
+
+
 def explicar(X_fila, art, referencia):
     """Aporte aproximado de cada variable, en puntos porcentuales.
 
@@ -202,17 +216,7 @@ def explicar(X_fila, art, referencia):
     probs = probabilidades(todas, art)
     base, sin_cada_una = probs[0], probs[1:]
 
-    fila = X_fila.iloc[0]
-    nombres_mod = {v: frase(k) for k, v in MODALIDADES.items()}
-    nombres_niv = {i: nombre_nivel(n) for i, n in enumerate(NIVELES)}
-    etiquetas = {
-        "mod_c": f"Modalidad: {nombres_mod.get(fila['mod_c'], 'otra').lower()}",
-        "niv_c": f"Nivel: {nombres_niv.get(fila['niv_c'], 'otro').lower()}",
-        "te_prog": f"Programa: {fila['te_prog'] * 100:.0f} % de sus fichas con deserción alta",
-        "te_centro": f"Centro: {fila['te_centro'] * 100:.0f} % de sus fichas con deserción alta",
-        "matriculados": f"Tamaño: {fila['matriculados']:.0f} aprendices",
-        "duracion_dias": f"Duración: {fila['duracion_dias']:.0f} días",
-    }
+    etiquetas = etiquetas_variables(X_fila.iloc[0])
     aportes = [
         {"variable": col, "etiqueta": etiquetas[col], "aporte_pp": float((base - p) * 100)}
         for col, p in zip(columnas, sin_cada_una)
