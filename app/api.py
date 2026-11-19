@@ -18,6 +18,9 @@ NIVEL = {k: i for i, k in enumerate([
 
 app = FastAPI(title="Riesgo de deserción por ficha (SENA)")
 
+@app.get("/health")
+def health():
+    return {"estado": "ok", "variables": FEATS}
 
 class Ficha(BaseModel):
     nivel_formacion: str
