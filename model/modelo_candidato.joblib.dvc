@@ -1,0 +1,5 @@
+outs:
+- md5: f172acbc9405bff0e8106716766c5ee6
+  size: 26978175
+  hash: md5
+  path: modelo_candidato.joblib
