@@ -49,8 +49,25 @@ CENTROS = (DF.groupby("CODIGO_CENTRO")
                 activas=("activa", "sum"))
            .reset_index())
 CENTROS["etiqueta"] = CENTROS["regional"] + " — " + CENTROS["centro"]
-OPCIONES_CENTRO = [{"label": e, "value": c} for e, c in
-                   sorted(zip(CENTROS["etiqueta"], CENTROS["CODIGO_CENTRO"]))]
+
+
+def recortar(texto, largo):
+    """Acorta un texto largo con puntos suspensivos.
+
+    Las listas desplegables tienen filas de alto fijo: una opción que ocupa dos
+    líneas se monta sobre la siguiente. Por eso las etiquetas se mantienen en una
+    línea; el texto completo queda en "title" (al pasar el mouse) y en "search"
+    (para que la búsqueda encuentre también la parte recortada).
+    """
+    texto = str(texto)
+    return texto if len(texto) <= largo else texto[:largo - 1].rstrip(" ,.-") + "…"
+
+
+OPCIONES_CENTRO = [
+    {"label": f"{recortar(fila.regional, 20)} — {recortar(fila.centro, 44)}",
+     "value": fila.CODIGO_CENTRO, "title": fila.etiqueta, "search": fila.etiqueta}
+    for fila in CENTROS.sort_values("etiqueta").itertuples()
+]
 CODIGOS_CENTRO = set(CENTROS["CODIGO_CENTRO"])
 
 PROGRAMAS = (DF.groupby("CODIGO_PROGRAMA")
@@ -63,11 +80,13 @@ PROGRAMAS = (DF.groupby("CODIGO_PROGRAMA")
              .reset_index())
 PROGRAMAS["tasa"] = PROGRAMAS["desertores"] / PROGRAMAS["matriculados"].where(PROGRAMAS["matriculados"] > 0)
 PROGRAMAS = PROGRAMAS.set_index("CODIGO_PROGRAMA")
-OPCIONES_PROGRAMA = sorted(
-    ({"label": f"{fila.programa} ({D.nombre_nivel(fila.nivel).lower()}, código {codigo})", "value": codigo}
-     for codigo, fila in PROGRAMAS.iterrows()),
-    key=lambda o: o["label"],
-)
+OPCIONES_PROGRAMA = [
+    {"label": f"{recortar(fila.programa, 36)} · {D.nombre_nivel(fila.nivel).lower()} · {codigo}",
+     "value": codigo,
+     "title": f"{fila.programa} ({D.nombre_nivel(fila.nivel).lower()}, código {codigo})",
+     "search": f"{fila.programa} {D.nombre_nivel(fila.nivel)} {codigo}"}
+    for codigo, fila in PROGRAMAS.sort_values("programa").iterrows()
+]
 
 
 def _centro_por_defecto():
@@ -329,11 +348,16 @@ def pagina_simulador():
             html.Section(id="sim-resultado", className="panel"),
         ]),
         html.Div(className="rejilla rejilla-sim", children=[
-            panel(
-                "Petición y respuesta",
-                html.Div(id="sim-json", className="json-rejilla"),
-                subtitulo=f"Lo que el simulador envía a la API (POST {API_URL}/predecir) y lo que recibe.",
-            ),
+            # Detalle técnico plegado por defecto: el usuario del SENA no lo necesita,
+            # pero queda a un clic para verificar la conexión con la API.
+            html.Section(className="panel", children=[
+                html.Details(className="detalle-tecnico", children=[
+                    html.Summary("Ver detalle técnico de la consulta (API)"),
+                    html.P(f"Lo que el simulador envía a la API (POST {API_URL}/predecir) y lo que recibe.",
+                           className="panel-sub"),
+                    html.Div(id="sim-json", className="json-rejilla"),
+                ]),
+            ]),
             panel("Ficha técnica del modelo", ficha_tecnica()),
         ]),
     ])
@@ -601,7 +625,9 @@ def actualizar_lista(centro, riesgo, nivel, modalidad, buscar):
     ])
     resumen = (f"Se muestran {len(visibles)} de {miles(len(lista))} fichas, "
                "de mayor a menor probabilidad.")
-    opciones = [{"label": f"{f.ficha} · {f.programa} ({pct(f.prob, 0)})", "value": str(i)}
+    opciones = [{"label": f"{f.ficha} · {recortar(f.programa, 34)} ({pct(f.prob, 0)})", "value": str(i),
+                 "title": f"{f.ficha} · {f.programa} ({pct(f.prob, 0)})",
+                 "search": f"{f.ficha} {f.programa}"}
                 for i, f in zip(visibles.index, visibles.itertuples())]
     return tabla, resumen, opciones, opciones[0]["value"]
 
@@ -679,7 +705,8 @@ def datos_programa(codigo):
     if not codigo or codigo not in PROGRAMAS.index:
         return no_update, no_update, no_update
     programa = PROGRAMAS.loc[codigo]
-    return (f"Nivel de formación: {D.nombre_nivel(programa['nivel']).lower()} (definido por el programa).",
+    return (f"{programa['programa']}. Nivel de formación: {D.nombre_nivel(programa['nivel']).lower()} "
+            "(definido por el programa).",
             int(programa["duracion"]),
             f"Duración típica del programa: {int(programa['duracion'])} días.")
 
@@ -949,9 +976,11 @@ h4 { font-size: 14px; margin: 20px 0 8px; }
 .segmentos { display: inline-flex; border: 1px solid var(--borde); border-radius: 8px; overflow: hidden; }
 .segmento { display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px; font-size: 13.5px; cursor: pointer; }
 .segmento-input { accent-color: var(--verde); }
-.json-rejilla { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
-.json { background: var(--bosque); color: #d9eadf; font-size: 12px; padding: 12px; border-radius: 8px; overflow-x: auto; margin: 0;
-  white-space: pre-wrap; overflow-wrap: anywhere; }
+.detalle-tecnico > summary { cursor: pointer; font-weight: 600; font-size: 15px; color: var(--verde); }
+.detalle-tecnico[open] > summary { margin-bottom: 8px; }
+.json-rejilla { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
+.json { background: var(--bosque); color: #d9eadf; font-size: 11.5px; line-height: 1.5; padding: 12px; border-radius: 8px;
+  margin: 0; white-space: pre; overflow-x: auto; }
 .ficha-tecnica { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 8px 14px; margin: 0; font-size: 13.5px; }
 .ficha-tecnica dd { overflow-wrap: anywhere; }
 .ficha-tecnica dt { color: var(--tenue); }
