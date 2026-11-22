@@ -131,6 +131,41 @@ def cargar_modelo(ruta=RUTA_MODELO):
     return joblib.load(ruta)
 
 
+NOMBRES_ALGORITMO = {
+    "HistGradientBoostingClassifier": "Gradient boosting sobre histogramas",
+    "GradientBoostingClassifier": "Gradient boosting",
+    "RandomForestClassifier": "Bosque aleatorio",
+    "ExtraTreesClassifier": "Árboles extremadamente aleatorios",
+    "DecisionTreeClassifier": "Árbol de decisión",
+    "LogisticRegression": "Regresión logística",
+    "XGBClassifier": "XGBoost",
+    "LGBMClassifier": "LightGBM",
+    "CatBoostClassifier": "CatBoost",
+}
+
+
+def describir_modelo(art):
+    """Lo que el tablero muestra del modelo, leído del .joblib.
+
+    Las claves opcionales "metricas" (auc, pr_auc, captura_20) y "version" se
+    muestran si existen. Así la ficha técnica sigue siendo correcta cuando se
+    reemplaza el modelo por otro algoritmo o por otros hiperparámetros.
+    """
+    modelo = art["modelo"]
+    final = modelo.steps[-1][1] if hasattr(modelo, "steps") else modelo
+    clase = type(final).__name__
+    metricas = art.get("metricas") or {}
+    return {
+        "clase": clase,
+        "nombre": NOMBRES_ALGORITMO.get(clase, clase),
+        "params": art.get("params") or {},
+        "auc": metricas.get("auc", metricas.get("auc_oof")),
+        "pr_auc": metricas.get("pr_auc", metricas.get("prauc_oof")),
+        "captura_20": metricas.get("captura_20"),
+        "version": art.get("version") or "modelo_final",
+    }
+
+
 # ----------------------------------------------------------- predicción ----
 
 def construir_matriz(datos, art):

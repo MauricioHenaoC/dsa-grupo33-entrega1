@@ -40,6 +40,7 @@ ART = D.cargar_modelo()
 DF["prob"] = D.predecir_df(DF, ART)
 DF["riesgo"] = DF["prob"].map(D.nivel_riesgo)
 REF = D.crear_referencia(DF, ART)
+MODELO_INFO = D.describir_modelo(ART)
 TASA_PAIS = D.tasa(DF)
 BASE_ALTA = float(DF["y"].mean())
 
@@ -338,19 +339,37 @@ def pagina_simulador():
     ])
 
 
+def decimal(valor, decimales=3):
+    return f"{valor:.{decimales}f}".replace(".", ",")
+
+
 def ficha_tecnica():
+    """Se arma con lo que trae model/modelo_final.joblib (ver D.describir_modelo)."""
+    info = MODELO_INFO
+    if info["auc"] is not None and info["pr_auc"] is not None:
+        validacion = (f"AUC {decimal(info['auc'])} y PR-AUC {decimal(info['pr_auc'])} "
+                      "fuera de muestra, con validación cruzada.")
+    else:
+        validacion = ("Métricas fuera de muestra en MLflow (experimento desercion_sena_riesgo) "
+                      "y en la sección de modelos del reporte.")
+    params = ", ".join(f"{k} = {v}" for k, v in info["params"].items() if k != "random_state")
     filas = [
-        ("Tipo", "Clasificación binaria con gradient boosting (HistGradientBoostingClassifier)."),
+        ("Tipo", f"Clasificación binaria: {info['nombre'].lower()} ({info['clase']})."),
         ("Objetivo", "Ficha con tasa de deserción de 5 % o más."),
         ("Variables", "Modalidad, nivel, programa y centro (tasa histórica suavizada), "
                       "aprendices matriculados y duración planeada."),
         ("Datos", f"{miles(len(DF))} fichas del corte al 28/02/2024."),
-        ("Validación", "Validación cruzada de 5 particiones: AUC 0,777 y PR-AUC 0,349."),
-        ("Priorización", "El 20 % de las fichas con mayor riesgo reúne cerca del 50 % "
-                         "de las fichas con deserción alta."),
+        ("Validación", validacion),
+    ]
+    if info["captura_20"] is not None:
+        filas.append(("Priorización", f"El 20 % de las fichas con mayor riesgo reúne el "
+                                      f"{pct(info['captura_20'], 0)} de las fichas con deserción alta."))
+    if params:
+        filas.append(("Hiperparámetros", params + "."))
+    filas += [
         ("Umbrales", "Medio desde 12 %, alto desde 25 %."),
         ("Servicio", "API en FastAPI (app/api.py), POST /predecir."),
-        ("Versión", "model/modelo_final.joblib, línea base."),
+        ("Versión", f"model/modelo_final.joblib ({info['version']})."),
     ]
     return html.Dl(className="ficha-tecnica", children=[
         elemento for nombre, texto in filas for elemento in (html.Dt(nombre), html.Dd(texto))
@@ -379,7 +398,7 @@ app.layout = html.Div(className="marco", children=[
         html.Div(className="lateral-pie", children=[
             html.P("Corte de datos: 28/02/2024"),
             html.P("Fuente: datos abiertos del SENA, Deserción de la Formación Profesional Integral."),
-            html.P("Modelo: modelo_final, línea base."),
+            html.P(f"Modelo: {MODELO_INFO['version']} ({MODELO_INFO['nombre'].lower()})."),
         ]),
     ]),
     html.Main(id="contenido", className="contenido"),
@@ -642,7 +661,10 @@ def exportar(n_clics, centro, riesgo, nivel, modalidad, buscar):
                     "matriculados", "desertores", "prob", "riesgo"]].copy()
     salida["prob"] = salida["prob"].round(4)
     salida = salida.rename(columns={"prob": "probabilidad_desercion_alta"})
-    return dcc.send_data_frame(salida.to_csv, "fichas_en_riesgo.csv", index=False)
+    # Formato de Excel en español: punto y coma entre columnas, coma decimal y
+    # marca UTF-8 al inicio para que las tildes y la ñ se vean bien.
+    contenido = "\ufeff" + salida.to_csv(index=False, sep=";", decimal=",")
+    return dcc.send_string(contenido, "fichas_en_riesgo.csv")
 
 
 # ---------------------------------------------------- simulador de riesgo ----
@@ -679,8 +701,10 @@ def consultar_api(ficha):
         raise ErrorAPI(f"La API rechazó la petición (código {error.code}): {detalle}") from error
     except (urllib.error.URLError, ConnectionError, TimeoutError) as error:
         raise ErrorAPI(
-            f"No hay respuesta de la API en {API_URL}. Levántala en otra ventana, desde la raíz "
-            "del repositorio y con el entorno activo: uvicorn app.api:app --port 8000") from error
+            f"El servicio de predicción (API) no responde en {API_URL}. Espere un minuto y vuelva a "
+            "consultar; si sigue igual, avise a quien administra el tablero. Para quien lo administra: "
+            "la API se levanta con docker compose up -d en el servidor, o en local con "
+            "uvicorn app.api:app --port 8000.") from error
 
 
 # Ficha de referencia expresada como datos de entrada de la API. Un código que
@@ -928,7 +952,8 @@ h4 { font-size: 14px; margin: 20px 0 8px; }
 .json-rejilla { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
 .json { background: var(--bosque); color: #d9eadf; font-size: 12px; padding: 12px; border-radius: 8px; overflow-x: auto; margin: 0;
   white-space: pre-wrap; overflow-wrap: anywhere; }
-.ficha-tecnica { display: grid; grid-template-columns: 110px 1fr; gap: 8px 14px; margin: 0; font-size: 13.5px; }
+.ficha-tecnica { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 8px 14px; margin: 0; font-size: 13.5px; }
+.ficha-tecnica dd { overflow-wrap: anywhere; }
 .ficha-tecnica dt { color: var(--tenue); }
 .ficha-tecnica dd { margin: 0; }
 a:focus-visible, button:focus-visible, input:focus-visible { outline: 3px solid #7fb69a; outline-offset: 2px; }
