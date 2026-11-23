@@ -1,5 +1,5 @@
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 import joblib
 import pandas as pd
 
@@ -27,9 +27,8 @@ class Ficha(BaseModel):
     modalidad_formacion: str
     codigo_programa: str
     codigo_centro: str
-    matriculados: int
-    duracion_dias: int
-
+    matriculados: int = Field(..., ge=1, description="Aprendices matriculados (1 o más)")
+    duracion_dias: int = Field(..., ge=0, description="Duración planeada en días (0 o más)")
 
 @app.post("/predecir")
 def predecir(ficha: Ficha):
